@@ -18,6 +18,8 @@ abstract class CommonSearchPageState<S extends StatefulWidget, R, T>
 
   List<Widget>? get multiSelectActions => null;
 
+  String get searchHint => '搜索';
+
   @override
   Widget build(BuildContext context) {
     if (controller case final MultiSelectBase multiCtr) {
@@ -72,7 +74,7 @@ abstract class CommonSearchPageState<S extends StatefulWidget, R, T>
         textInputAction: TextInputAction.search,
         textAlignVertical: TextAlignVertical.center,
         decoration: InputDecoration(
-          hintText: '搜索',
+          hintText: searchHint,
           visualDensity: .standard,
           border: InputBorder.none,
           suffixIcon: IconButton(

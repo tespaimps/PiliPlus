@@ -90,7 +90,7 @@ class _DownloadPagePageState extends State<DownloadPagePage>
     final list =
         _controller.seasons
             .firstWhereOrNull((e) => e.seasonInfo == widget.seasonInfo)
-            ?.pages
+            ?.pages.toList()
           ?..sort(_sort);
     if (list != null) {
       _pages.value = list;

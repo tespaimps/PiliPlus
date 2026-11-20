@@ -64,6 +64,14 @@ class BiliDownloadEntryInfo with MultiSelectData {
 
   String get pageId => seasonId ?? avid.toString();
 
+  bool matchesDownloadSearch(String query) {
+    final text = query.trim().toLowerCase();
+    return title.toLowerCase().contains(text) ||
+        showTitle.toLowerCase().contains(text) ||
+        (ownerName?.toLowerCase().contains(text) ?? false) ||
+        (seasonInfo?.uname.toLowerCase().contains(text) ?? false);
+  }
+
   int get sortKey => ep?.sortIndex ?? pageData!.page;
 
   String get showTitle {
@@ -115,15 +123,9 @@ class BiliDownloadEntryInfo with MultiSelectData {
           onTap: () {
             if (ep case final ep?) {
               if (ep.from == VideoType.pugv.name) {
-                PageUtils.viewPugv(
-                  seasonId: seasonId,
-                  epId: ep.episodeId,
-                );
+                PageUtils.viewPugv(seasonId: seasonId, epId: ep.episodeId);
               } else {
-                PageUtils.viewPgc(
-                  seasonId: seasonId,
-                  epId: ep.episodeId,
-                );
+                PageUtils.viewPgc(seasonId: seasonId, epId: ep.episodeId);
               }
               return;
             }
@@ -417,20 +419,12 @@ class SourceInfo {
   final int avId;
   final int cid;
 
-  SourceInfo({
-    required this.avId,
-    required this.cid,
-  });
+  SourceInfo({required this.avId, required this.cid});
 
-  factory SourceInfo.fromJson(Map<String, dynamic> json) => SourceInfo(
-    avId: json['av_id'] as int,
-    cid: json['cid'] as int,
-  );
+  factory SourceInfo.fromJson(Map<String, dynamic> json) =>
+      SourceInfo(avId: json['av_id'] as int, cid: json['cid'] as int);
 
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'av_id': avId,
-    'cid': cid,
-  };
+  Map<String, dynamic> toJson() => <String, dynamic>{'av_id': avId, 'cid': cid};
 }
 
 class EpInfo {
@@ -521,8 +515,7 @@ enum DownloadStatus {
   failDanmaku('获取弹幕失败'),
   failPlayUrl('获取播放地址失败'),
   pause('暂停中'),
-  wait('等待中'),
-  ;
+  wait('等待中');
 
   final String message;
   const DownloadStatus(this.message);

@@ -56,6 +56,8 @@ analysis_benchmark.json
 .packages
 .pub-cache/
 .pub/
+pubspec_overrides.yaml
+*.apk
 /build/
 flutter_*.png
 linked_*.ds

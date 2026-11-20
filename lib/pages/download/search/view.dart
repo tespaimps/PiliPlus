@@ -13,10 +13,7 @@ import 'package:material_ui/material_ui.dart'
     hide SliverGridDelegateWithMaxCrossAxisExtent;
 
 class DownloadSearchPage extends StatefulWidget {
-  const DownloadSearchPage({
-    super.key,
-    required this.progress,
-  });
+  const DownloadSearchPage({super.key, required this.progress});
 
   final ChangeNotifier progress;
 
@@ -43,6 +40,9 @@ class _DownloadSearchPageState
 
   @override
   BaseMultiSelectMixin<BiliDownloadEntryInfo> get multiSelectCtr => controller;
+
+  @override
+  String get searchHint => '搜索标题或UP主';
 
   @override
   List<Widget>? get extraActions => [

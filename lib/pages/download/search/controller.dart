@@ -26,15 +26,10 @@ class DownloadSearchController
 
   @override
   Future<LoadingState<List<BiliDownloadEntryInfo>>> customGetData() async {
-    final text = editController.text.toLowerCase();
+    final text = editController.text;
     return Success(
       _downloadService.downloadList
-          .where(
-            (e) =>
-                e.title.toLowerCase().contains(text) ||
-                e.showTitle.toLowerCase().contains(text) ||
-                (e.ownerName?.toLowerCase().contains(text) ?? false),
-          )
+          .where((e) => e.matchesDownloadSearch(text))
           .toList(),
     );
   }
@@ -43,10 +38,7 @@ class DownloadSearchController
     loadingState
       ..value.data!.removeAt(index)
       ..refresh();
-    _downloadService.deleteDownload(
-      entry: entry,
-      removeList: true,
-    );
+    _downloadService.deleteDownload(entry: entry, removeList: true);
     GStorage.watchProgress.delete(entry.cid.toString());
   }
 

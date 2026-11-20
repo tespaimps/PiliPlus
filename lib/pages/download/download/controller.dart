@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
+import 'package:PiliPlus/models_new/download/download_owner_group.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show BaseMultiSelectMixin;
 import 'package:PiliPlus/services/download/download_service.dart';
@@ -15,12 +16,13 @@ class DownloadController extends GetxController
     with BaseMultiSelectMixin<DownloadSeasonInfo> {
   final _downloadService = Get.find<DownloadService>();
   final seasons = RxList<DownloadSeasonInfo>();
+  final items = RxList<DownloadSeasonInfo>();
   final flag = RxInt(0);
 
   @override
-  List<DownloadSeasonInfo> get list => seasons;
+  List<DownloadSeasonInfo> get list => items;
   @override
-  RxList<DownloadSeasonInfo> get state => seasons;
+  RxList<DownloadSeasonInfo> get state => items;
 
   @override
   void onInit() {
@@ -40,6 +42,9 @@ class DownloadController extends GetxController
     if (isClosed) return;
     if (_downloadService.downloadList.isEmpty) {
       seasons.clear();
+      items.clear();
+      rxCount.value = 0;
+      enableMultiSelect.value = false;
       flag.value++;
       return;
     }
@@ -78,23 +83,37 @@ class DownloadController extends GetxController
         );
       }
     }
+    final selected = allChecked.map(downloadSelectionKey).toSet();
     seasons.value = list;
+    items.value = buildDownloadRootItems(list)
+      ..forEach(
+        (item) => item.checked = selected.contains(downloadSelectionKey(item)),
+      );
+    rxCount.value = allChecked.length;
+    if (rxCount.value == 0) enableMultiSelect.value = false;
     flag.value++;
   }
 
   @override
-  void onRemove() {
+  void onRemove() => removeSeasons(allChecked.toList());
+
+  void removeSeasons(
+    List<DownloadSeasonInfo> selected, {
+    void Function()? onRemoved,
+  }) {
     showConfirmDialog(
       context: Get.context!,
       title: const Text('确定删除选中视频？'),
       onConfirm: () async {
         SmartDialog.showLoading();
         final watchProgress = GStorage.watchProgress;
-        for (final season in allChecked) {
+        final deletedPaths = <String>{};
+        for (final season in selected) {
           for (final page in season.pages) {
             await watchProgress.deleteAll(
               page.entries.map((e) => e.cid.toString()),
             );
+            if (!deletedPaths.add(page.dirPath)) continue;
             await _downloadService.deletePage(
               pageDirPath: page.dirPath,
               refresh: false,
@@ -107,6 +126,7 @@ class DownloadController extends GetxController
           enableMultiSelect.value = false;
         }
         SmartDialog.dismiss();
+        onRemoved?.call();
       },
     );
   }

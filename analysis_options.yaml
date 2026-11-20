@@ -11,6 +11,8 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
+    # Run with the Flutter tool package configuration documented in docs/offline-cache-folders.md.
+    - tool/test_download_cache.dart
     - lib/grpc/bilibili/**
     - lib/**/*.g.dart
     - android/**

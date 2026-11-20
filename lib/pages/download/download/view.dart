@@ -1,24 +1,20 @@
-import 'dart:async';
-
 import 'package:PiliPlus/common/widgets/appbar/appbar.dart';
 import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
-import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
+import 'package:PiliPlus/models_new/download/download_owner_group.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
 import 'package:PiliPlus/pages/download/download/controller.dart';
-import 'package:PiliPlus/pages/download/download/widgets/page.dart';
-import 'package:PiliPlus/pages/download/download/widgets/season.dart';
+import 'package:PiliPlus/pages/download/download/widgets/owner.dart';
+import 'package:PiliPlus/pages/download/owner/view.dart';
+import 'package:PiliPlus/pages/download/season_actions.dart';
 import 'package:PiliPlus/pages/download/download_action_mixin.dart';
 import 'package:PiliPlus/pages/download/search/view.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
-import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/grid.dart';
-import 'package:PiliPlus/utils/storage.dart';
 import 'package:collection/collection.dart';
-import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart'
     hide SliverGridDelegateWithMaxCrossAxisExtent;
@@ -31,7 +27,10 @@ class DownloadPage extends StatefulWidget {
 }
 
 class _DownloadPageState extends State<DownloadPage>
-    with GridMixin, BaseDownloadActionMixin<DownloadPage, DownloadSeasonInfo> {
+    with
+        GridMixin,
+        BaseDownloadActionMixin<DownloadPage, DownloadSeasonInfo>,
+        DownloadSeasonActions<DownloadPage> {
   final _progress = ChangeNotifier();
   final _controller = Get.put(DownloadController());
 
@@ -45,117 +44,6 @@ class _DownloadPageState extends State<DownloadPage>
   void dispose() {
     _progress.dispose();
     super.dispose();
-  }
-
-  @override
-  Future<bool> onUpdate(
-    Future<bool> Function(BiliDownloadEntryInfo e) toElement,
-  ) async {
-    if (checkUpdateCount(_controller.checkedCount)) return false;
-
-    bool dismiss = false;
-    SmartDialog.showLoading(
-      onDismiss: () {
-        dismiss = true;
-        _controller.handleSelect();
-      },
-    );
-
-    bool isSuccess = true;
-    for (final chunk in _controller.allChecked.mapChunked(
-      kUpdateConcurrency,
-      (season) async {
-        bool isSuccess = true;
-        for (final chunk in season.pages.mapChunked(
-          kUpdateConcurrency,
-          (page) async {
-            bool isSuccess = true;
-            for (final chunk in page.entries.mapChunked(
-              kUpdateConcurrency,
-              toElement,
-            )) {
-              final res = await Future.wait(chunk);
-              if (res.any((e) => !e)) isSuccess = false;
-              if (dismiss) break;
-            }
-            return isSuccess;
-          },
-        )) {
-          final res = await Future.wait(chunk);
-          if (res.any((e) => !e)) isSuccess = false;
-          if (dismiss) break;
-        }
-        return isSuccess;
-      },
-    )) {
-      final res = await Future.wait(chunk);
-      if (res.any((e) => !e)) isSuccess = false;
-      if (dismiss) break;
-    }
-
-    toastUpdateResult(dismiss, isSuccess);
-
-    return isSuccess;
-  }
-
-  Future<void> _updateSeasonDm(DownloadSeasonInfo seasonInfo) => _updateSeason(
-    seasonInfo,
-    (e) => downloadService.downloadDanmaku(entry: e, isUpdate: true),
-  );
-
-  Future<void> _updateSeasonSeg(DownloadSeasonInfo seasonInfo) =>
-      _updateSeason(seasonInfo, downloadService.updateSegments);
-
-  Future<void> _updateSeasonVolume(DownloadSeasonInfo seasonInfo) =>
-      _updateSeason(seasonInfo, downloadService.updateVolume);
-
-  Future<void> _updateSeasonPlayInfo(DownloadSeasonInfo seasonInfo) =>
-      _updateSeason(seasonInfo, downloadService.updatePlayInfo);
-
-  Future<void> _updateSeasonSeasonInfo(DownloadSeasonInfo seasonInfo) =>
-      _updateSeason(
-        seasonInfo,
-        downloadService.updateSeasonInfo,
-      ).then(downloadService.refreshIfUpdated);
-
-  Future<bool> _updateSeason(
-    DownloadSeasonInfo seasonInfo,
-    Future<bool> Function(BiliDownloadEntryInfo e) toElement,
-  ) async {
-    if (checkUpdateCount(
-      seasonInfo.pages.fold(0, (a, b) => a + b.entries.length),
-    )) {
-      return false;
-    }
-
-    bool dismiss = false;
-    SmartDialog.showLoading(onDismiss: () => dismiss = true);
-
-    bool isSuccess = true;
-
-    for (final chunk in seasonInfo.pages.mapChunked(
-      kUpdateConcurrency,
-      (page) async {
-        bool isSuccess = true;
-        for (final chunk in page.entries.mapChunked(
-          kUpdateConcurrency,
-          toElement,
-        )) {
-          final res = await Future.wait(chunk);
-          if (res.any((e) => !e)) isSuccess = false;
-          if (dismiss) break;
-        }
-        return isSuccess;
-      },
-    )) {
-      final res = await Future.wait(chunk);
-      if (res.any((e) => !e)) isSuccess = false;
-      if (dismiss) break;
-    }
-
-    toastUpdateResult(dismiss, isSuccess);
-
-    return isSuccess;
   }
 
   @override
@@ -241,7 +129,7 @@ class _DownloadPageState extends State<DownloadPage>
                   return const SliverToBoxAdapter();
                 }),
                 Obx(() {
-                  if (_controller.seasons.isNotEmpty) {
+                  if (_controller.items.isNotEmpty) {
                     return SliverMainAxisGroup(
                       slivers: [
                         SliverPadding(
@@ -258,65 +146,40 @@ class _DownloadPageState extends State<DownloadPage>
                         ),
                         SliverGrid.builder(
                           gridDelegate: gridDelegate,
+                          itemCount: _controller.items.length,
                           itemBuilder: (context, index) {
-                            final season = _controller.seasons[index];
-                            final seasonInfo = season.seasonInfo;
-                            final pages = season.pages;
-
-                            if (seasonInfo != null && pages.length > 1) {
-                              return SeasonInfoItem(
-                                controller: _controller,
-                                downloadService: downloadService,
-                                seasonInfo: seasonInfo,
-                                season: season,
+                            final item = _controller.items[index];
+                            if (item is DownloadOwnerFolder) {
+                              return DownloadOwnerItem(
+                                key: ValueKey(item.pageId),
+                                folder: item,
                                 enableMultiSelect: enableMultiSelect,
-                                progress: _progress,
-                                updateSeasonDm: _updateSeasonDm,
-                                updateSeasonSeg: _updateSeasonSeg,
-                                updateSeasonVolume: _updateSeasonVolume,
-                                updateSeasonPlayInfo: _updateSeasonPlayInfo,
-                                updateSeasonSeasonInfo: _updateSeasonSeasonInfo,
-                              );
-                            }
-
-                            final page = pages.first;
-                            if (pages.length == 1 && page.entries.length == 1) {
-                              final entry = page.entries.first;
-                              return DetailItem(
-                                entry: entry,
-                                progress: _progress,
-                                downloadService: downloadService,
-                                showTitle: true,
-                                onDelete: () {
-                                  downloadService.deleteDownload(
-                                    entry: entry,
-                                    removeList: true,
-                                  );
-                                  GStorage.watchProgress.delete(
-                                    entry.cid.toString(),
-                                  );
+                                onTap: () {
+                                  if (enableMultiSelect) {
+                                    _controller.onSelect(item);
+                                  } else {
+                                    Get.to(
+                                      DownloadOwnerPage(
+                                        ownerKey: item.group.key,
+                                        ownerName: item.group.name,
+                                        progress: _progress,
+                                      ),
+                                    );
+                                  }
                                 },
-                                checked: season.checked,
-                                onSelect: (_) => _controller.onSelect(season),
-                                controller: _controller,
+                                onDelete: () =>
+                                    _controller.removeSeasons([item]),
+                                updateActions: {
+                                  '更新弹幕': () => updateSeasonDm(item),
+                                  '更新片段': () => updateSeasonSeg(item),
+                                  '更新合集信息': () => updateSeasonSeasonInfo(item),
+                                  '更新音量均衡': () => updateSeasonVolume(item),
+                                  '更新字幕、分段信息': () => updateSeasonPlayInfo(item),
+                                },
                               );
                             }
-
-                            return PageInfoItem(
-                              controller: _controller,
-                              downloadService: downloadService,
-                              seasonInfo: season,
-                              pageInfo: page,
-                              enableMultiSelect: enableMultiSelect,
-                              progress: _progress,
-                              updatePageDm: updatePageDm,
-                              updatePageSeg: updatePageSeg,
-                              updatePageVolume: updatePageVolume,
-                              updatePagePlayInfo: updatePagePlayInfo,
-                              updatePageSeasonInfo: updatePageSeasonInfo,
-                            );
+                            return buildSeasonItem(item, _progress);
                           },
-                          itemCount: _controller.seasons.length,
                         ),
                       ],
                     );
