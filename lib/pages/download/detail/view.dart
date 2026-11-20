@@ -23,12 +23,12 @@ import 'package:material_ui/material_ui.dart'
 class DownloadDetailPage extends StatefulWidget {
   const DownloadDetailPage({
     super.key,
-    required this.pageId,
+    required this.pageDirPath,
     required this.title,
     required this.progress,
   });
 
-  final String pageId;
+  final String pageDirPath;
   final String title;
   final ChangeNotifier progress;
 
@@ -80,14 +80,9 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
   }
 
   void _loadList() {
-    List<BiliDownloadEntryInfo>? list;
-    for (final season in _controller.seasons) {
-      for (final page in season.pages) {
-        if (page.pageId == widget.pageId) {
-          list = page.entries..sort(downloadEntrySort);
-        }
-      }
-    }
+    final list =
+        downloadService.folderIndex.pageAt(widget.pageDirPath)?.entries.toList()
+          ?..sort(downloadEntrySort);
     if (list != null) {
       _downloadItems.value = list;
     } else {
@@ -196,7 +191,7 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
               refresh: false,
             ),
         ]);
-        downloadService.flagNotifier.refresh();
+        downloadService.notifyDownloadListChanged();
         if (isDeleteAll) {
           SmartDialog.dismiss();
           if (mounted) {

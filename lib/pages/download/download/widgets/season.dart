@@ -125,6 +125,7 @@ class SeasonInfoItem extends StatelessWidget {
           Get.to(
             DownloadPagePage(
               seasonInfo: seasonInfo,
+              folderKey: season.folderKey,
               progress: progress,
             ),
           );

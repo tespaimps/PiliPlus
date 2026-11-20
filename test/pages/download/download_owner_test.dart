@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/models_new/download/download_folder_index.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/models_new/download/download_owner_group.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,29 +15,33 @@ BiliDownloadEntryInfo entry(
   int? cid,
   int bytes = 1,
   String cover = '',
-}) => BiliDownloadEntryInfo(
-  isCompleted: true,
-  totalBytes: bytes,
-  downloadedBytes: 1,
-  title: 'Flutter教程 $aid',
-  cover: cover,
-  preferedVideoQuality: 80,
-  guessedTotalBytes: 1,
-  totalTimeMilli: 1000,
-  danmakuCount: 0,
-  avid: aid,
-  bvid: 'BV$aid',
-  ownerId: ownerId,
-  ownerName: ownerName,
-  seasonInfo: season,
-  pageData: PageInfo(
-    cid: cid ?? aid,
-    page: 1,
-    hasAlias: false,
-    tid: 0,
-    part: '第一节',
-  ),
-)..pageDirPath = '/cache/$aid';
+}) =>
+    BiliDownloadEntryInfo(
+        isCompleted: true,
+        totalBytes: bytes,
+        downloadedBytes: 1,
+        title: 'Flutter教程 $aid',
+        cover: cover,
+        preferedVideoQuality: 80,
+        guessedTotalBytes: 1,
+        totalTimeMilli: 1000,
+        danmakuCount: 0,
+        timeUpdateStamp: 1000000 - aid,
+        avid: aid,
+        bvid: 'BV$aid',
+        ownerId: ownerId,
+        ownerName: ownerName,
+        seasonInfo: season,
+        pageData: PageInfo(
+          cid: cid ?? aid,
+          page: 1,
+          hasAlias: false,
+          tid: 0,
+          part: '第一节',
+        ),
+      )
+      ..pageDirPath = '/cache/$aid'
+      ..entryDirPath = '/cache/$aid/${cid ?? aid}';
 
 DownloadSeasonInfo video(BiliDownloadEntryInfo e) => DownloadSeasonInfo(
   seasonInfo: e.seasonInfo,
@@ -42,6 +50,161 @@ DownloadSeasonInfo video(BiliDownloadEntryInfo e) => DownloadSeasonInfo(
 );
 
 void main() {
+  final fixtureRoot = Platform.environment['PILI_CACHE_PROFILE_FIXTURES'];
+  for (final size in [1000, 10000]) {
+    test('renames and moves only affected groups in a $size video library', () {
+      var visits = 0;
+      final layout = DownloadFolderLayout();
+      final index = DownloadFolderIndex(
+        Iterable.generate(size, (i) {
+          visits++;
+          return entry(i + 1, ownerId: (i ~/ 2) + 1);
+        }),
+        layout,
+      );
+      final untouched = index.folder('id:3')!;
+      final target = index.folder('id:2')!;
+      final rename = layout.copy()..names['id:2'] = 'Target Folder';
+      index.apply(rename, renamed: 'id:2');
+      expect(index.folder('id:2')!.pages, same(target.pages));
+      expect(
+        index.folders
+            .where((f) => f.group.searchName.contains('target'))
+            .single
+            .group
+            .key,
+        'id:2',
+      );
+      final move = rename.copy()..destinations['video:1'] = 'id:2';
+      index.apply(move, moved: {'video:1'});
+      expect(index.folder('id:3'), same(untouched));
+      expect(index.folder('id:2')!.group.videoCount, 3);
+      expect(index.folder('id:2')!.group.name, 'Target Folder');
+      expect(index.snapshot().rootItems.length, size ~/ 2);
+      expect(visits, size);
+    });
+
+    test('indexes $size cache entries with a single source traversal', () {
+      final source = [
+        for (var i = 0; i < size; i++)
+          entry(
+            i + 1,
+            ownerId: i < size ~/ 2 ? 1 : i + 1,
+            ownerName: i < size ~/ 2 ? '性能样本 UP 主' : '作者 ${i + 1}',
+          ),
+      ];
+      var visits = 0;
+      final snapshot = DownloadListSnapshot.build(
+        source.map((entry) {
+          visits++;
+          return entry;
+        }),
+      );
+      final group = snapshot.owners['id:1']!;
+      expect(snapshot.seasons.length, size);
+      expect(snapshot.rootItems.length, size ~/ 2 + 1);
+      expect(group.videoCount, size ~/ 2);
+      expect(group.totalBytes, size ~/ 2);
+      expect(visits, size);
+      if (fixtureRoot != null && fixtureRoot.isNotEmpty) {
+        final target = Directory('$fixtureRoot/cache-$size');
+        if (target.existsSync()) {
+          throw StateError(
+            'Choose a new fixture output directory: ${target.path}',
+          );
+        }
+        for (final video in source) {
+          File(
+              '${target.path}/${video.avid}/${video.cid}/entry.json',
+            )
+            ..createSync(recursive: true)
+            ..writeAsStringSync(jsonEncode(video.toJson()));
+        }
+      }
+    });
+  }
+
+  test('splits collection navigation by folder while preserving parts', () {
+    final collection = SeasonInfo(
+      index: 0,
+      id: 7,
+      title: '合集',
+      cover: '',
+      mid: 10,
+      uname: '作者',
+    );
+    final partOne = entry(11, ownerId: 10, season: collection);
+    final partTwo = entry(11, ownerId: 10, season: collection, cid: 111);
+    final next = entry(12, ownerId: 10, season: collection);
+    final index = DownloadFolderIndex(
+      [
+        partOne,
+        partTwo,
+        next,
+        entry(13, ownerId: 10),
+      ],
+      DownloadFolderLayout(
+        names: {'manual:test': '手动'},
+        destinations: {'video:11': 'manual:test'},
+      ),
+    );
+    expect(index.collection('id:10', 7)!.pages.single.pageId, '12');
+    expect(index.collection('manual:test', 7)!.pages.single.pageId, '11');
+    expect(index.pageAt(partOne.pageDirPath)!.entries, [partOne, partTwo]);
+    expect(index.folder('manual:test')!.group.videoCount, 1);
+  });
+
+  test(
+    'index preserves part order and distinguishes collections from videos',
+    () {
+      final collection = SeasonInfo(
+        index: 2,
+        id: 7,
+        title: '合集',
+        cover: '',
+        mid: 10,
+        uname: '作者',
+      );
+      final first = entry(
+        7,
+        ownerId: 10,
+        cover: 'first.jpg',
+        season: collection,
+      );
+      final standalone = entry(7, ownerId: 10, cid: 107);
+      final part = entry(
+        7,
+        ownerId: 10,
+        cid: 207,
+        cover: 'part.jpg',
+        season: collection,
+      );
+      final next = entry(8, ownerId: 10, cover: 'next.jpg');
+      final snapshot = DownloadListSnapshot.build([
+        first,
+        standalone,
+        part,
+        next,
+      ]);
+      expect(snapshot.seasons.map(downloadSelectionKey), [
+        'season:7',
+        'page:7',
+        'page:8',
+      ]);
+      expect(snapshot.seasons.first.pages.single.entries, [first, part]);
+      expect(snapshot.seasons.first.pages.single.cover, 'part.jpg');
+      expect(snapshot.owners['id:10']!.cover, 'first.jpg');
+      expect(
+        DownloadListSnapshot.build([standalone, next]).owners['id:10']!.cover,
+        standalone.cover,
+      );
+      expect(
+        DownloadListSnapshot.build([next]).rootItems.single,
+        isNot(isA<DownloadOwnerFolder>()),
+      );
+    },
+  );
+
   test(
     'two videos, a multipart video and a collection become exactly one folder',
     () {

@@ -17,7 +17,6 @@ import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/grid.dart';
 import 'package:PiliPlus/utils/storage.dart';
-import 'package:collection/collection.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart'
@@ -27,10 +26,12 @@ class DownloadPagePage extends StatefulWidget {
   const DownloadPagePage({
     super.key,
     required this.seasonInfo,
+    required this.folderKey,
     required this.progress,
   });
 
   final SeasonInfo seasonInfo;
+  final String? folderKey;
   final ChangeNotifier progress;
 
   @override
@@ -88,9 +89,21 @@ class _DownloadPagePageState extends State<DownloadPagePage>
 
   void _loadList() {
     final list =
-        _controller.seasons
-            .firstWhereOrNull((e) => e.seasonInfo == widget.seasonInfo)
-            ?.pages.toList()
+        downloadService.folderIndex
+            .collection(widget.folderKey, widget.seasonInfo.id)
+            ?.pages
+            .map(
+              (page) => DownloadPageInfo(
+                pageId: page.pageId,
+                dirPath: page.dirPath,
+                title: page.title,
+                cover: page.cover,
+                sortKey: page.sortKey,
+                seasonType: page.seasonType,
+                entries: page.entries,
+              ),
+            )
+            .toList()
           ?..sort(_sort);
     if (list != null) {
       _pages.value = list;
@@ -246,7 +259,7 @@ class _DownloadPagePageState extends State<DownloadPagePage>
             refresh: false,
           );
         }
-        downloadService.flagNotifier.refresh();
+        downloadService.notifyDownloadListChanged();
         if (enableMultiSelect.value) {
           rxCount.value = 0;
           enableMultiSelect.value = false;

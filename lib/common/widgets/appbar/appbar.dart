@@ -8,12 +8,14 @@ class MultiSelectAppBarWidget extends StatelessWidget
   final bool? visible;
   final AppBar child;
   final List<Widget>? actions;
+  final bool actionsBelow;
 
   const MultiSelectAppBarWidget({
     super.key,
     required this.ctr,
     this.visible,
     this.actions,
+    this.actionsBelow = false,
     required this.child,
   });
 
@@ -22,39 +24,72 @@ class MultiSelectAppBarWidget extends StatelessWidget
     if (visible ?? ctr.enableMultiSelect.value) {
       final style = TextButton.styleFrom(visualDensity: VisualDensity.compact);
       final colorScheme = ColorScheme.of(context);
-      return AppBar(
-        bottom: child.bottom,
+      final buttons = <Widget>[
+        TextButton(
+          style: style,
+          onPressed: () => ctr.handleSelect(checked: true),
+          child: const Text('全选'),
+        ),
+        ...?actions,
+        TextButton(
+          style: style,
+          onPressed: () {
+            if (ctr.checkedCount == 0) return;
+            ctr.onRemove();
+          },
+          child: Text(
+            '移除',
+            style: TextStyle(color: colorScheme.error),
+          ),
+        ),
+        const SizedBox(width: 6),
+      ];
+      final bar = AppBar(
+        bottom: actionsBelow
+            ? PreferredSize(
+                preferredSize: Size.fromHeight(
+                  44 + (child.bottom?.preferredSize.height ?? 0),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ?child.bottom,
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          height: 44,
+                          child: Row(children: buttons),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : child.bottom,
         leading: IconButton(
           tooltip: '取消',
           onPressed: ctr.handleSelect,
           icon: const Icon(Icons.close_outlined),
         ),
         title: Obx(() => Text('已选: ${ctr.checkedCount}')),
-        actions: [
-          TextButton(
-            style: style,
-            onPressed: () => ctr.handleSelect(checked: true),
-            child: const Text('全选'),
-          ),
-          ...?actions,
-          TextButton(
-            style: style,
-            onPressed: () {
-              if (ctr.checkedCount == 0) return;
-              ctr.onRemove();
-            },
-            child: Text(
-              '移除',
-              style: TextStyle(color: colorScheme.error),
-            ),
-          ),
-          const SizedBox(width: 6),
-        ],
+        actions: actionsBelow ? null : buttons,
       );
+      // SimpleScaffold measures its app bar with an unconstrained height.
+      return actionsBelow
+          ? SizedBox(
+              height: preferredSize.height + MediaQuery.paddingOf(context).top,
+              child: bar,
+            )
+          : bar;
     }
     return child;
   }
 
   @override
-  Size get preferredSize => child.preferredSize;
+  Size get preferredSize =>
+      actionsBelow && (visible ?? ctr.enableMultiSelect.value)
+      ? Size.fromHeight(child.preferredSize.height + 44)
+      : child.preferredSize;
 }

@@ -61,7 +61,7 @@ class DownloadSearchController
         loadingState
           ..value.data!.removeWhere(allChecked.contains)
           ..refresh();
-        _downloadService.flagNotifier.refresh();
+        _downloadService.notifyDownloadListChanged();
         if (enableMultiSelect.value) {
           rxCount.value = 0;
           enableMultiSelect.value = false;

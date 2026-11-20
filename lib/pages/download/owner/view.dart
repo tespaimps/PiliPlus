@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:developer' show Timeline;
 
 import 'package:PiliPlus/common/widgets/appbar/appbar.dart';
 import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_sliver_safe_area.dart';
+import 'package:PiliPlus/models_new/download/download_folder_index.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/models_new/download/download_owner_group.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
@@ -12,6 +14,7 @@ import 'package:PiliPlus/pages/download/download_action_mixin.dart';
 import 'package:PiliPlus/pages/download/season_actions.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/grid.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart'
     hide SliverGridDelegateWithMaxCrossAxisExtent;
@@ -55,22 +58,24 @@ class _DownloadOwnerPageState extends State<DownloadOwnerPage>
     _sub = _controller.flag.listen((_) => _loadList());
   }
 
-  void _loadList() {
+  void _loadList() => Timeline.timeSync('Offline cache: load author list', () {
     final selected = allChecked.map(downloadSelectionKey).toSet();
-    final groups = groupDownloadsByOwner(_controller.seasons);
-    final group = groups.where((g) => g.key == widget.ownerKey).firstOrNull;
-    _seasons.value = [...?group?.seasons]
-      ..forEach((s) => s.checked = selected.contains(downloadSelectionKey(s)));
-    rxCount.value = allChecked.length;
-    if (rxCount.value == 0) enableMultiSelect.value = false;
-  }
+    var count = 0;
+    _seasons.value = _controller.ownerSeasons(widget.ownerKey).map((season) {
+      final item = selectableDownloadSeason(season);
+      if (selected.contains(downloadSelectionKey(item))) {
+        item.checked = true;
+        count++;
+      }
+      return item;
+    }).toList();
+    rxCount.value = count;
+    if (count == 0) enableMultiSelect.value = false;
+  });
 
   @override
   void dispose() {
     _sub?.cancel();
-    for (final season in _seasons) {
-      season.checked = false;
-    }
     super.dispose();
   }
 
@@ -82,6 +87,16 @@ class _DownloadOwnerPageState extends State<DownloadOwnerPage>
     },
   );
 
+  void _move() {
+    if (checkedCount == 0) return;
+    final selection = downloadService.captureFolderSelection(allChecked);
+    if (_controller.moveTargets(selection, '').isEmpty) {
+      SmartDialog.showToast('没有可移动到的其他文件夹');
+      return;
+    }
+    Get.back<DownloadFolderSelection>(result: selection);
+  }
+
   @override
   Widget build(BuildContext context) => Obx(
     () => popScope(
@@ -92,9 +107,22 @@ class _DownloadOwnerPageState extends State<DownloadOwnerPage>
       child: SimpleScaffold(
         appBar: MultiSelectAppBarWidget(
           ctr: this,
-          actions: [updateBtn()],
+          actionsBelow: MediaQuery.sizeOf(context).width < 420,
+          actions: [
+            Obx(
+              () => TextButton(
+                onPressed: checkedCount > 0 ? _move : null,
+                child: const Text('移动'),
+              ),
+            ),
+            updateBtn(),
+          ],
           child: AppBar(
-            title: Text(widget.ownerName),
+            title: Obx(
+              () => Text(
+                _controller.liveFolderName(widget.ownerKey) ?? widget.ownerName,
+              ),
+            ),
             actions: [
               IconButton(
                 tooltip: '多选',

@@ -1,13 +1,14 @@
 import 'dart:async';
+import 'dart:developer' show Timeline;
 
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+import 'package:PiliPlus/models_new/download/download_folder_index.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/models_new/download/download_owner_group.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show BaseMultiSelectMixin;
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/storage.dart';
-import 'package:collection/collection.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart' show Text;
@@ -15,7 +16,45 @@ import 'package:material_ui/material_ui.dart' show Text;
 class DownloadController extends GetxController
     with BaseMultiSelectMixin<DownloadSeasonInfo> {
   final _downloadService = Get.find<DownloadService>();
-  final seasons = RxList<DownloadSeasonInfo>();
+  DownloadListSnapshot? _snapshot;
+  List<DownloadSeasonInfo> get seasons => _snapshot?.seasons ?? const [];
+  List<DownloadSeasonInfo> ownerSeasons(String ownerKey) =>
+      _snapshot?.owners[ownerKey]?.seasons ?? const [];
+  String? liveFolderName(String key) =>
+      flag.value == 0 ? null : _snapshot?.owners[key]?.name;
+  final _checkedFolders = 0.obs;
+  int _folderCount = 0;
+  bool get canMove => checkedCount > 0 && _checkedFolders.value == 0;
+
+  @override
+  void onSelect(DownloadSeasonInfo item) {
+    if (item is DownloadOwnerFolder) {
+      _checkedFolders.value += item.checked ? -1 : 1;
+    }
+    super.onSelect(item);
+  }
+
+  @override
+  void handleSelect({bool checked = false, bool disableSelect = true}) {
+    _checkedFolders.value = checked ? _folderCount : 0;
+    super.handleSelect(checked: checked, disableSelect: disableSelect);
+  }
+
+  List<DownloadOwnerFolder> moveTargets(
+    DownloadFolderSelection selection,
+    String query,
+  ) {
+    // Subscribe the picker to successful changes in membership and names.
+    if (flag.value == 0) return const [];
+    return _downloadService.folderIndex.folders
+        .where(
+          (folder) =>
+              !selection.sources.contains(folder.group.key) &&
+              folder.group.searchName.contains(query),
+        )
+        .toList();
+  }
+
   final items = RxList<DownloadSeasonInfo>();
   final flag = RxInt(0);
 
@@ -40,58 +79,31 @@ class DownloadController extends GetxController
   Future<void> _loadList() async {
     await _downloadService.waitForInitialization;
     if (isClosed) return;
-    if (_downloadService.downloadList.isEmpty) {
-      seasons.clear();
-      items.clear();
-      rxCount.value = 0;
-      enableMultiSelect.value = false;
-      flag.value++;
-      return;
-    }
-    final list = <DownloadSeasonInfo>[];
-    for (final entry in _downloadService.downloadList) {
-      final pageId = entry.pageId;
-      final seasonInfo = entry.seasonInfo;
-      final season = seasonInfo != null
-          ? list.firstWhereOrNull((e) => e.seasonInfo == seasonInfo)
-          : list.firstWhereOrNull((e) => e.pageId == pageId);
-      if (season != null) {
-        final page = season.pages.firstWhereOrNull((e) => e.pageId == pageId);
-        if (page != null) {
-          final aSortKey = entry.sortKey;
-          final bSortKey = page.sortKey;
-          if (aSortKey < bSortKey) {
-            page
-              ..cover = entry.cover
-              ..sortKey = aSortKey;
-          }
-          page.entries.add(entry);
-        } else {
-          season.pages.add(
-            entry.toDownloadPageInfo(pageId, sortKey: seasonInfo!.index),
-          );
+    Timeline.timeSync('Offline cache: load root list', () {
+      final snapshot = _downloadService.downloadIndex;
+      if (identical(snapshot, _snapshot)) return;
+      final selected = allChecked.map(downloadCardSelectionKey).toSet();
+      _snapshot = snapshot;
+      var count = 0;
+      var checkedFolders = 0;
+      var folders = 0;
+      items.value = snapshot.rootItems.map((season) {
+        final item = selectableDownloadSeason(season);
+        final isFolder = item is DownloadOwnerFolder;
+        if (isFolder) folders++;
+        if (selected.contains(downloadCardSelectionKey(item))) {
+          item.checked = true;
+          count++;
+          if (isFolder) checkedFolders++;
         }
-      } else {
-        list.add(
-          DownloadSeasonInfo(
-            pageId: pageId,
-            seasonInfo: seasonInfo,
-            pages: [
-              entry.toDownloadPageInfo(pageId, sortKey: seasonInfo?.index),
-            ],
-          ),
-        );
-      }
-    }
-    final selected = allChecked.map(downloadSelectionKey).toSet();
-    seasons.value = list;
-    items.value = buildDownloadRootItems(list)
-      ..forEach(
-        (item) => item.checked = selected.contains(downloadSelectionKey(item)),
-      );
-    rxCount.value = allChecked.length;
-    if (rxCount.value == 0) enableMultiSelect.value = false;
-    flag.value++;
+        return item;
+      }).toList();
+      rxCount.value = count;
+      _folderCount = folders;
+      _checkedFolders.value = checkedFolders;
+      if (count == 0) enableMultiSelect.value = false;
+      flag.value++;
+    });
   }
 
   @override
@@ -120,7 +132,7 @@ class DownloadController extends GetxController
             );
           }
         }
-        _downloadService.flagNotifier.refresh();
+        _downloadService.notifyDownloadListChanged();
         if (enableMultiSelect.value) {
           rxCount.value = 0;
           enableMultiSelect.value = false;

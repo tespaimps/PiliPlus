@@ -26,10 +26,19 @@ class DownloadSeasonInfo with MultiSelectData {
   SeasonInfo? seasonInfo;
   final String pageId;
   final List<DownloadPageInfo> pages;
+  final String? folderKey;
 
   DownloadSeasonInfo({
     required this.seasonInfo,
     required this.pageId,
     required this.pages,
+    this.folderKey,
   });
 }
+
+String downloadVideoKey(DownloadPageInfo page) =>
+    downloadEntryKey(page.entries.first);
+
+String downloadEntryKey(BiliDownloadEntryInfo entry) => entry.seasonId == null
+    ? 'video:${entry.avid}'
+    : 'pgc:${entry.seasonId}:${entry.ep?.seasonType ?? 0}';

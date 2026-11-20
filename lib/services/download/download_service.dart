@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert' show jsonDecode, jsonEncode;
+import 'dart:developer' show Timeline, TimelineTask;
 import 'dart:io' show Directory, File;
 
 import 'package:PiliPlus/grpc/dm.dart';
@@ -11,6 +12,9 @@ import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/download/bili_download_media_file_info.dart';
+import 'package:PiliPlus/models_new/download/download_folder_index.dart';
+import 'package:PiliPlus/models_new/download/download_info.dart';
+import 'package:PiliPlus/models_new/download/download_owner_group.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_info_model/episode.dart' as pgc;
 import 'package:PiliPlus/models_new/pgc/pgc_info_model/result.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
@@ -30,11 +34,12 @@ import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:flutter/foundation.dart'
-    show kDebugMode, debugPrint, VoidCallback;
+    show kDebugMode, debugPrint, protected, VoidCallback;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 import 'package:synchronized/synchronized.dart';
+import 'package:uuid/uuid.dart';
 
 // ref https://github.com/10miaomiao/bilimiao2/blob/master/bilimiao-download/src/main/java/cn/a10miaomiao/bilimiao/download/DownloadService.kt
 
@@ -44,10 +49,193 @@ class DownloadService extends GetxService {
   static const _maxDanmakuConcurrency = 4;
 
   final _downloadLock = Lock();
+  final _folderLock = Lock();
+  final _pendingFolderDeletes = <String>{};
 
   final flagNotifier = SetNotifier();
   final waitDownloadQueue = RxList<BiliDownloadEntryInfo>();
+  // Consumers read this list; mutations must invalidate the index below.
   final downloadList = <BiliDownloadEntryInfo>[];
+  int _downloadRevision = 0;
+  int _indexedRevision = -1;
+  int _notifiedRevision = 0;
+  DownloadListSnapshot? _downloadIndex;
+  DownloadFolderIndex? _folders;
+  DownloadFolderLayout _layout = DownloadFolderLayout();
+  String? _folderScope;
+  bool _layoutReadable = true;
+
+  DownloadListSnapshot get downloadIndex {
+    final index = folderIndex;
+    return _downloadIndex ??= index.snapshot();
+  }
+
+  DownloadFolderIndex get folderIndex {
+    if (_indexedRevision != _downloadRevision) {
+      _downloadIndex = null;
+      _folders = Timeline.timeSync(
+        'Offline cache: assemble index',
+        () => DownloadFolderIndex(downloadList, _layout),
+        arguments: {'entries': downloadList.length},
+      );
+      _indexedRevision = _downloadRevision;
+    }
+    return _folders!;
+  }
+
+  @protected
+  Object? readFolderLayout(String key) => GStorage.localCache.get(key);
+
+  @protected
+  Future<void> writeFolderLayout(String key, Map<String, Object> data) =>
+      GStorage.localCache.put(key, data);
+
+  @protected
+  String? get folderScope => _folderScope;
+
+  String? get folderStorageKey => folderScope;
+
+  DownloadFolderSelection captureFolderSelection(
+    Iterable<DownloadSeasonInfo> selection,
+  ) {
+    final index = folderIndex;
+    final locations = <String, Set<String>>{};
+    String? title;
+    for (final item in selection) {
+      for (final page in item.pages) {
+        title ??= page.title;
+        final id = downloadVideoKey(page);
+        locations.putIfAbsent(id, () => index.locations(id));
+      }
+    }
+    return DownloadFolderSelection(folderScope, locations, title ?? '');
+  }
+
+  Future<void> mergeFolders(DownloadFolderSelection selection, String name) =>
+      _changeFolderLayout(selection.scope, (index, next) {
+        final id = 'manual:${const Uuid().v4()}';
+        _assignFolders(index, next, selection, id);
+        next.names[id] = _folderName(name);
+        return (moved: selection.locations.keys.toSet(), renamed: null);
+      });
+
+  Future<void> moveToFolder(DownloadFolderSelection selection, String target) =>
+      _changeFolderLayout(selection.scope, (index, next) {
+        if (index.folder(target) == null ||
+            selection.sources.contains(target)) {
+          throw const DownloadFolderException('目标文件夹已不可用');
+        }
+        _assignFolders(index, next, selection, target);
+        return (moved: selection.locations.keys.toSet(), renamed: null);
+      });
+
+  Future<void> renameFolder(String? scope, String id, String name) =>
+      _changeFolderLayout(scope, (index, next) {
+        if (index.folder(id) == null) {
+          throw const DownloadFolderException('文件夹已不可用');
+        }
+        next.names[id] = _folderName(name);
+        return (moved: const <String>{}, renamed: id);
+      });
+
+  String _folderName(String value) {
+    final name = value.trim();
+    if (name.isEmpty) throw const DownloadFolderException('请输入文件夹名称');
+    return name;
+  }
+
+  void _assignFolders(
+    DownloadFolderIndex index,
+    DownloadFolderLayout next,
+    DownloadFolderSelection selection,
+    String target,
+  ) {
+    if (selection.locations.isEmpty) {
+      throw const DownloadFolderException('请先选择视频');
+    }
+    for (final selected in selection.locations.entries) {
+      final current = index.locations(selected.key);
+      if (current.isEmpty ||
+          current.length != selected.value.length ||
+          !current.containsAll(selected.value)) {
+        throw const DownloadFolderException('所选视频已变化，请重新选择');
+      }
+      next.destinations[selected.key] = target;
+    }
+    index.pruneEmptiedFolders(next, selection.locations.keys.toSet());
+  }
+
+  Future<void> _changeFolderLayout(
+    String? scope,
+    ({Set<String> moved, String? renamed}) Function(
+      DownloadFolderIndex index,
+      DownloadFolderLayout next,
+    )
+    change,
+  ) => _folderLock.synchronized(() async {
+    await waitForInitialization;
+    if (scope == null || folderScope != scope) {
+      throw const DownloadFolderException('缓存目录已变化，请重新选择');
+    }
+    if (!_layoutReadable) throw const DownloadFolderException('无法读取文件夹归类记录');
+    final index = folderIndex;
+    final revision = _downloadRevision;
+    final next = _layout.copy();
+    final (:moved, :renamed) = change(index, next);
+    await writeFolderLayout(scope, next.toJson());
+    if (folderScope != scope) return;
+    _layout = next;
+    if (revision == _downloadRevision) {
+      index.apply(next, moved: moved, renamed: renamed);
+    } else {
+      _indexedRevision = -1;
+    }
+    _downloadIndex = null;
+    notifyDownloadListChanged();
+  });
+
+  void notifyDownloadListChanged() {
+    _notifiedRevision = _downloadRevision;
+    flagNotifier.refresh();
+    if (_pendingFolderDeletes.isNotEmpty) {
+      final deleted = Set.of(_pendingFolderDeletes);
+      _pendingFolderDeletes.clear();
+      unawaited(_removeDeletedFolderMembers(folderScope, deleted));
+    }
+  }
+
+  Future<void> _removeDeletedFolderMembers(
+    String? scope,
+    Set<String> deleted,
+  ) => _folderLock.synchronized(() async {
+    if (scope == null || folderScope != scope || !_layoutReadable) return;
+    try {
+      await waitForInitialization;
+      if (folderScope != scope) return;
+      deleted.retainWhere(_layout.destinations.containsKey);
+      if (deleted.isEmpty) return;
+      final index = folderIndex;
+      final next = _layout.copy();
+      var changed = false;
+      for (final video in deleted) {
+        if (index.locations(video).isNotEmpty) continue;
+        final folder = next.destinations.remove(video);
+        if (folder == null) continue;
+        changed = true;
+        if (folder.startsWith('manual:') && index.folder(folder) == null) {
+          next.names.remove(folder);
+        }
+      }
+      if (!changed) return;
+      await writeFolderLayout(scope, next.toJson());
+      if (folderScope != scope) return;
+      _layout = next;
+      _folders?.apply(next);
+    } catch (error) {
+      if (folderScope == scope) _pendingFolderDeletes.addAll(deleted);
+      debugPrint('Could not remove deleted offline folder members: $error');
+    }
+  });
 
   int? _curCid;
   int? get curCid => _curCid;
@@ -78,18 +266,46 @@ class DownloadService extends GetxService {
   }
 
   void initDownloadList() {
+    final directory = path.normalize(path.absolute(downloadPath));
+    final key =
+        'offlineFolders:${path.style == path.Style.windows ? directory.toLowerCase() : directory}';
+    restoreFolderLayout(key);
     waitForInitialization = _readDownloadList();
   }
 
-  Future<void> _readDownloadList() async {
-    downloadList.clear();
-    final downloadDir = Directory(await _getDownloadPath());
-    await for (final dir in downloadDir.list()) {
-      if (dir is Directory) {
-        downloadList.addAll(await _readDownloadDirectory(dir));
-      }
+  @protected
+  void restoreFolderLayout(String key) {
+    _folderScope = key;
+    _indexedRevision = -1;
+    _pendingFolderDeletes.clear();
+    _layoutReadable = true;
+    try {
+      _layout = DownloadFolderLayout.fromJson(readFolderLayout(key));
+    } catch (error) {
+      _layout = DownloadFolderLayout();
+      _layoutReadable = false;
+      debugPrint('Could not read offline folder layout: $error');
     }
-    downloadList.sort((a, b) => b.timeUpdateStamp.compareTo(a.timeUpdateStamp));
+  }
+
+  Future<void> _readDownloadList() async {
+    final task = TimelineTask()..start('Offline cache: read from disk');
+    try {
+      downloadList.clear();
+      final downloadDir = Directory(await _getDownloadPath());
+      await for (final dir in downloadDir.list()) {
+        if (dir is Directory) {
+          downloadList.addAll(await _readDownloadDirectory(dir));
+        }
+      }
+      downloadList.sort(
+        (a, b) => b.timeUpdateStamp.compareTo(a.timeUpdateStamp),
+      );
+    } finally {
+      task.finish();
+    }
+    _downloadRevision++;
+    notifyDownloadListChanged();
   }
 
   @pragma('vm:notify-debugger-on-exception')
@@ -568,7 +784,9 @@ class DownloadService extends GetxService {
   }
 
   void refreshIfUpdated(bool isSuccess) {
-    if (isSuccess) flagNotifier.refresh();
+    if (isSuccess || _notifiedRevision != _downloadRevision) {
+      notifyDownloadListChanged();
+    }
   }
 
   Future<bool> updateUgcSeasonInfo(
@@ -586,8 +804,12 @@ class DownloadService extends GetxService {
             for (final episode in section.episodes!) {
               if (episode.bvid == bvid) {
                 entry.seasonInfo = response.seasonInfo(indexInSeason);
-                await _updateBiliDownloadEntryJson(entry);
-                if (refresh) flagNotifier.refresh();
+                _downloadRevision++;
+                try {
+                  await _updateBiliDownloadEntryJson(entry);
+                } finally {
+                  if (refresh) notifyDownloadListChanged();
+                }
                 return true;
               }
               indexInSeason++;
@@ -761,7 +983,8 @@ class DownloadService extends GetxService {
     await _updateBiliDownloadEntryJson(entry);
     waitDownloadQueue.remove(entry);
     downloadList.insert(0, entry);
-    flagNotifier.refresh();
+    _downloadRevision++;
+    notifyDownloadListChanged();
     _curCid = null;
     curDownload.value = null;
     _downloadManager = null;
@@ -782,8 +1005,10 @@ class DownloadService extends GetxService {
     bool refresh = true,
     bool downloadNext = true,
   }) async {
-    if (removeList) {
-      downloadList.remove(entry);
+    if (removeList && downloadList.remove(entry)) {
+      _downloadRevision++;
+      final video = downloadEntryKey(entry);
+      _pendingFolderDeletes.add(video);
     }
     if (removeQueue) {
       waitDownloadQueue.remove(entry);
@@ -806,7 +1031,7 @@ class DownloadService extends GetxService {
       }
     }
     if (refresh) {
-      flagNotifier.refresh();
+      notifyDownloadListChanged();
     }
   }
 
@@ -815,9 +1040,16 @@ class DownloadService extends GetxService {
     bool refresh = true,
   }) async {
     await Directory(pageDirPath).tryDel(recursive: true);
-    downloadList.removeWhere((e) => e.pageDirPath == pageDirPath);
+    final previousLength = downloadList.length;
+    downloadList.removeWhere((entry) {
+      if (entry.pageDirPath != pageDirPath) return false;
+      final video = downloadEntryKey(entry);
+      _pendingFolderDeletes.add(video);
+      return true;
+    });
+    if (previousLength != downloadList.length) _downloadRevision++;
     if (refresh) {
-      flagNotifier.refresh();
+      notifyDownloadListChanged();
     }
   }
 

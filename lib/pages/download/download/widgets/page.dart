@@ -123,7 +123,7 @@ class PageInfoItem<T extends MultiSelectData> extends StatelessWidget {
           }
           Get.to(
             DownloadDetailPage(
-              pageId: pageInfo.pageId,
+              pageDirPath: pageInfo.dirPath,
               title: pageInfo.title,
               progress: progress,
             ),
