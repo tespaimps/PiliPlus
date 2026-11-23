@@ -15,7 +15,7 @@ import 'package:PiliPlus/pages/download/download/widgets/page.dart';
 import 'package:PiliPlus/pages/download/download_action_mixin.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
-import 'package:PiliPlus/utils/grid.dart';
+import 'package:PiliPlus/pages/download/download_grid.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -41,7 +41,6 @@ class DownloadPagePage extends StatefulWidget {
 class _DownloadPagePageState extends State<DownloadPagePage>
     with
         BaseMultiSelectMixin<DownloadPageInfo>,
-        GridMixin,
         BaseDownloadActionMixin<DownloadPagePage, DownloadPageInfo> {
   StreamSubscription? _sub;
   final _pages = RxList<DownloadPageInfo>();
@@ -190,8 +189,7 @@ class _DownloadPagePageState extends State<DownloadPagePage>
               ViewSliverSafeArea(
                 sliver: Obx(() {
                   if (_pages.isNotEmpty) {
-                    return SliverGrid.builder(
-                      gridDelegate: gridDelegate,
+                    return DownloadGrid(
                       itemBuilder: (context, index) {
                         final page = list[index];
                         if (page.entries.length == 1) {

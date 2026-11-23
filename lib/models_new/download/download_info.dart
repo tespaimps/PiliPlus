@@ -10,6 +10,9 @@ class DownloadPageInfo with MultiSelectData {
   int sortKey;
   final int? seasonType;
   final List<BiliDownloadEntryInfo> entries;
+  late final int totalBytes = {
+    for (final entry in entries) entry.cid: entry.totalBytes,
+  }.values.fold(0, (sum, bytes) => sum + bytes);
 
   DownloadPageInfo({
     required this.pageId,

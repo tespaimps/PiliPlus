@@ -9,13 +9,15 @@ import 'package:PiliPlus/pages/common/multi_select/base.dart';
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
 import 'package:PiliPlus/pages/download/download/controller.dart';
 import 'package:PiliPlus/pages/download/download/widgets/folder_dialogs.dart';
+import 'package:PiliPlus/pages/download/download/widgets/move_destination.dart';
 import 'package:PiliPlus/pages/download/download/widgets/owner.dart';
 import 'package:PiliPlus/pages/download/owner/view.dart';
 import 'package:PiliPlus/pages/download/season_actions.dart';
 import 'package:PiliPlus/pages/download/download_action_mixin.dart';
+import 'package:PiliPlus/pages/download/download_grid.dart';
+import 'package:PiliPlus/pages/download/download_sort_dialog.dart';
 import 'package:PiliPlus/pages/download/search/view.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
-import 'package:PiliPlus/utils/grid.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -31,14 +33,14 @@ class DownloadPage extends StatefulWidget {
 
 class _DownloadPageState extends State<DownloadPage>
     with
-        GridMixin,
         BaseDownloadActionMixin<DownloadPage, DownloadSeasonInfo>,
         DownloadSeasonActions<DownloadPage> {
   final _progress = ChangeNotifier();
   final _controller = Get.put(DownloadController());
   final _scroll = ScrollController(keepScrollOffset: false);
+  final _grid = GlobalKey<DownloadGridState>();
   DownloadFolderSelection? _moving;
-  String _folderQuery = '';
+  DownloadScrollAnchor? _moveAnchor;
   bool _savingFolder = false;
 
   @override
@@ -76,6 +78,7 @@ class _DownloadPageState extends State<DownloadPage>
     final selection = downloadService.captureFolderSelection(
       _controller.allChecked,
     );
+    if (selection.count < 2) return;
     final name = await askDownloadFolderName(context);
     if (!mounted || name == null) return;
     if (await _saveFolder(
@@ -101,104 +104,41 @@ class _DownloadPageState extends State<DownloadPage>
 
   void _beginMove(DownloadFolderSelection selection) {
     if (selection.count == 0) return;
-    if (!downloadService.folderIndex.folders.any(
-      (folder) => !selection.sources.contains(folder.group.key),
-    )) {
+    if (_controller.moveTargets(selection, '').isEmpty) {
       SmartDialog.showToast('没有可移动到的其他文件夹');
       return;
     }
-    if (_scroll.hasClients) _scroll.jumpTo(0);
-    setState(() {
-      _folderQuery = '';
-      _moving = selection;
+    _moveAnchor = DownloadScrollAnchor.capture(_scroll, [_grid]);
+    setState(() => _moving = selection);
+  }
+
+  void _finishMove(bool moved) {
+    if (moved) _controller.handleSelect();
+    setState(() => _moving = null);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _moveAnchor?.restore(_scroll, [_grid]);
+      _moveAnchor = null;
     });
   }
 
-  void _cancelMove() {
-    if (!_savingFolder) setState(() => _moving = null);
-  }
-
-  Future<void> _confirmMove(
-    DownloadFolderSelection selection,
-    DownloadOwnerFolder folder,
-  ) async {
-    final yes = await confirmDownloadFolderMove(context, selection, folder);
-    if (!mounted || yes != true) return;
-    if (await _saveFolder(
-          () => downloadService.moveToFolder(selection, folder.group.key),
-        ) &&
-        mounted) {
-      _controller.handleSelect();
-      _cancelMove();
+  Future<void> _sort() async {
+    final value = await chooseDownloadSort(context, _controller.sort.value);
+    if (value == null || !mounted) return;
+    try {
+      await _controller.setSort(value);
+    } catch (_) {
+      SmartDialog.showToast('保存排序失败，请重试');
     }
   }
 
-  Widget _movePage(DownloadFolderSelection selection) => popScope(
-    canPop: false,
-    onPopInvokedWithResult: (didPop, _) {
-      if (!didPop) _cancelMove();
-    },
-    child: SimpleScaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: '取消移动',
-          onPressed: _savingFolder ? null : _cancelMove,
-          icon: const Icon(Icons.close),
-        ),
-        title: const Text('移动到文件夹'),
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: TextField(
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: '搜索文件夹',
-              ),
-              onChanged: (value) =>
-                  setState(() => _folderQuery = value.trim().toLowerCase()),
-            ),
-          ),
-          Expanded(
-            child: Obx(() {
-              final folders = _controller.moveTargets(selection, _folderQuery);
-              if (folders.isEmpty) return const Center(child: Text('没有匹配的文件夹'));
-              return ListView.builder(
-                itemCount: folders.length,
-                itemBuilder: (context, index) {
-                  final group = folders[index].group;
-                  final identity = switch (group.key.split(':').first) {
-                    'id' => 'UID ${group.key.substring(3)}',
-                    'manual' => '手动 · ${group.seasons.first.pages.first.title}',
-                    _ =>
-                      downloadService.folderIndex.originalName(group.key) ??
-                          '作者文件夹',
-                  };
-                  return ListTile(
-                    leading: const Icon(Icons.folder_outlined),
-                    title: Text(group.name),
-                    subtitle: Text(
-                      '$identity · ${group.videoCount} 个视频',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: _savingFolder
-                        ? null
-                        : () => _confirmMove(selection, folders[index]),
-                  );
-                },
-              );
-            }),
-          ),
-        ],
-      ),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
-    if (_moving case final selection?) return _movePage(selection);
+    if (_moving case final selection?) {
+      return DownloadMoveDestination(
+        selection: selection,
+        onClose: _finishMove,
+      );
+    }
     final padding = MediaQuery.viewPaddingOf(context);
     return Obx(() {
       final enableMultiSelect = _controller.enableMultiSelect.value;
@@ -239,6 +179,11 @@ class _DownloadPageState extends State<DownloadPage>
             child: AppBar(
               title: const Text('离线缓存'),
               actions: [
+                IconButton(
+                  tooltip: '排序',
+                  onPressed: _sort,
+                  icon: const Icon(Icons.sort),
+                ),
                 IconButton(
                   tooltip: '搜索',
                   onPressed: () async {
@@ -319,8 +264,11 @@ class _DownloadPageState extends State<DownloadPage>
                             child: Text('已缓存视频'),
                           ),
                         ),
-                        SliverGrid.builder(
-                          gridDelegate: gridDelegate,
+                        DownloadGrid(
+                          key: _grid,
+                          idAt: (index) => downloadCardSelectionKey(
+                            _controller.items[index],
+                          ),
                           itemCount: _controller.items.length,
                           itemBuilder: (context, index) {
                             final item = _controller.items[index];
@@ -329,21 +277,17 @@ class _DownloadPageState extends State<DownloadPage>
                                 key: ValueKey(item.pageId),
                                 folder: item,
                                 enableMultiSelect: enableMultiSelect,
-                                onTap: () async {
+                                onTap: () {
                                   if (enableMultiSelect) {
                                     _controller.onSelect(item);
                                   } else {
-                                    final selection =
-                                        await Get.to<DownloadFolderSelection>(
-                                          DownloadOwnerPage(
-                                            ownerKey: item.group.key,
-                                            ownerName: item.group.name,
-                                            progress: _progress,
-                                          ),
-                                        );
-                                    if (mounted && selection != null) {
-                                      _beginMove(selection);
-                                    }
+                                    Get.to(
+                                      DownloadOwnerPage(
+                                        ownerKey: item.group.key,
+                                        ownerName: item.group.name,
+                                        progress: _progress,
+                                      ),
+                                    );
                                   }
                                 },
                                 onDelete: () =>

@@ -6,6 +6,7 @@ import 'package:PiliPlus/common/widgets/select_mask.dart';
 import 'package:PiliPlus/models_new/download/download_owner_group.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/pages/download/download_grid.dart';
 import 'package:material_ui/material_ui.dart';
 
 class DownloadOwnerItem extends StatelessWidget {
@@ -13,14 +14,16 @@ class DownloadOwnerItem extends StatelessWidget {
     super.key,
     required this.folder,
     required this.onTap,
-    required this.onDelete,
+    this.onDelete,
     required this.updateActions,
     required this.enableMultiSelect,
+    this.destinationHint,
   });
 
   final DownloadOwnerFolder folder;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
+  final String? destinationHint;
   final bool enableMultiSelect;
   final Map<String, VoidCallback> updateActions;
 
@@ -34,7 +37,10 @@ class DownloadOwnerItem extends StatelessWidget {
         clipBehavior: Clip.hardEdge,
         contentPadding: const EdgeInsets.symmetric(vertical: 12),
         children: [
-          for (final action in {'删除': onDelete, ...updateActions}.entries)
+          for (final action in {
+            '删除': ?onDelete,
+            ...updateActions,
+          }.entries)
             DialogOption(
               onPressed: () {
                 Navigator.of(context).pop();
@@ -49,8 +55,11 @@ class DownloadOwnerItem extends StatelessWidget {
       type: MaterialType.transparency,
       child: InkWell(
         onTap: onTap,
-        onLongPress: enableMultiSelect ? null : menu,
-        onSecondaryTap: PlatformUtils.isMobile || enableMultiSelect
+        onLongPress: enableMultiSelect || destinationHint != null ? null : menu,
+        onSecondaryTap:
+            PlatformUtils.isMobile ||
+                enableMultiSelect ||
+                destinationHint != null
             ? null
             : menu,
         child: Padding(
@@ -58,8 +67,7 @@ class DownloadOwnerItem extends StatelessWidget {
             horizontal: Style.safeSpace,
             vertical: 5,
           ),
-          child: Row(
-            spacing: 10,
+          child: DownloadCardLayout(
             children: [
               Stack(
                 clipBehavior: Clip.none,
@@ -103,8 +111,9 @@ class DownloadOwnerItem extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      group.totalBytes.formatSize,
+                      destinationHint ?? group.totalBytes.formatSize,
                       maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.6,

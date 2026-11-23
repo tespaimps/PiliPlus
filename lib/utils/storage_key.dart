@@ -150,6 +150,8 @@ abstract final class SettingBoxKey {
       setSystemBrightness = 'setSystemBrightness',
       downloadPath = 'downloadPath',
       cachePlayInfo = 'cachePlayInfo',
+      downloadTwoColumns = 'downloadTwoColumns',
+      downloadSort = 'downloadSort',
       imageSavePath = 'imageSavePath',
       followOrderType = 'followOrderType',
       enableImgMenu = 'enableImgMenu',

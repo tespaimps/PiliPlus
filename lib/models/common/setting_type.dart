@@ -18,6 +18,7 @@ enum SettingType {
   replySetting('评论设置'),
   dynSetting('动态设置'),
   styleSetting('外观设置'),
+  downloadSetting('离线缓存'),
   extraSetting('其它设置'),
   webdavSetting('WebDAV 设置'),
   about('关于'),
@@ -35,6 +36,7 @@ enum SettingType {
     .dynSetting => dynSettings,
     .replySetting => replySettings,
     .styleSetting => styleSettings,
+    .downloadSetting => downloadSettings,
     .extraSetting => extraSettings,
     .webdavSetting || .about => throw UnimplementedError(),
   };

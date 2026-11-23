@@ -8,6 +8,8 @@ class DownloadOwnerGroup {
   final List<DownloadSeasonInfo> seasons;
   final int videoCount;
   final int totalBytes;
+  final int oldest;
+  final int newest;
   final String cover;
 
   DownloadOwnerGroup._(
@@ -16,6 +18,8 @@ class DownloadOwnerGroup {
     required this.seasons,
     required this.videoCount,
     required this.totalBytes,
+    required this.oldest,
+    required this.newest,
     required this.cover,
   });
 
@@ -25,6 +29,8 @@ class DownloadOwnerGroup {
     seasons: seasons,
     videoCount: videoCount,
     totalBytes: totalBytes,
+    oldest: oldest,
+    newest: newest,
     cover: cover,
   );
 
@@ -144,11 +150,16 @@ DownloadOwnerGroup summarizeDownloadGroup(
   final pageIds = <String>{};
   final cids = <int>{};
   var totalBytes = 0;
+  var oldest = 0;
+  var newest = 0;
   for (final season in seasons) {
     for (final page in season.pages) {
       pageIds.add(downloadVideoKey(page));
       for (final entry in page.entries) {
         if (cids.add(entry.cid)) totalBytes += entry.totalBytes;
+        final date = entry.timeCreateStamp;
+        if (date > 0 && (oldest == 0 || date < oldest)) oldest = date;
+        if (date > newest) newest = date;
       }
     }
   }
@@ -158,6 +169,8 @@ DownloadOwnerGroup summarizeDownloadGroup(
     seasons: List.unmodifiable(seasons),
     videoCount: pageIds.length,
     totalBytes: totalBytes,
+    oldest: oldest,
+    newest: newest,
     cover: seasons.first.pages.first.entries.first.cover,
   );
 }

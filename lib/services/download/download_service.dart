@@ -254,6 +254,13 @@ class DownloadService extends GetxService {
   late Future<void> waitForInitialization;
 
   var cachePlayInfo = Pref.cachePlayInfo;
+  final downloadTwoColumns =
+      (GStorage.setting.get(
+                SettingBoxKey.downloadTwoColumns,
+                defaultValue: false,
+              ) ==
+              true)
+          .obs;
   void toggleCachePlayInfo() {
     cachePlayInfo = !cachePlayInfo;
     GStorage.setting.put(SettingBoxKey.cachePlayInfo, cachePlayInfo);

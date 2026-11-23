@@ -5,10 +5,12 @@ import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/models_new/download/download_folder_index.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/models_new/download/download_owner_group.dart';
+import 'package:PiliPlus/models_new/download/download_sort.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show BaseMultiSelectMixin;
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart' show Text;
@@ -17,6 +19,22 @@ class DownloadController extends GetxController
     with BaseMultiSelectMixin<DownloadSeasonInfo> {
   final _downloadService = Get.find<DownloadService>();
   DownloadListSnapshot? _snapshot;
+  final sort = decodeDownloadSort(
+    GStorage.setting.get(SettingBoxKey.downloadSort),
+  ).obs;
+  DownloadListSnapshot? _targetSnapshot;
+  DownloadSort? _targetSort;
+  List<DownloadOwnerFolder> _sortedFolders = const [];
+
+  Future<void> setSort(DownloadSort value) async {
+    await GStorage.setting.put(SettingBoxKey.downloadSort, [
+      value.field.name,
+      value.ascending,
+    ]);
+    sort.value = value;
+    items.value = sortDownloads(items, value);
+  }
+
   List<DownloadSeasonInfo> get seasons => _snapshot?.seasons ?? const [];
   List<DownloadSeasonInfo> ownerSeasons(String ownerKey) =>
       _snapshot?.owners[ownerKey]?.seasons ?? const [];
@@ -46,7 +64,16 @@ class DownloadController extends GetxController
   ) {
     // Subscribe the picker to successful changes in membership and names.
     if (flag.value == 0) return const [];
-    return _downloadService.folderIndex.folders
+    final current = sort.value;
+    if (!identical(_targetSnapshot, _snapshot) || current != _targetSort) {
+      _targetSnapshot = _snapshot;
+      _targetSort = current;
+      _sortedFolders = sortDownloads(
+        _downloadService.folderIndex.folders,
+        current,
+      );
+    }
+    return _sortedFolders
         .where(
           (folder) =>
               !selection.sources.contains(folder.group.key) &&
@@ -87,7 +114,7 @@ class DownloadController extends GetxController
       var count = 0;
       var checkedFolders = 0;
       var folders = 0;
-      items.value = snapshot.rootItems.map((season) {
+      items.value = sortDownloads(snapshot.rootItems, sort.value).map((season) {
         final item = selectableDownloadSeason(season);
         final isFolder = item is DownloadOwnerFolder;
         if (isFolder) folders++;
@@ -112,10 +139,11 @@ class DownloadController extends GetxController
   void removeSeasons(
     List<DownloadSeasonInfo> selected, {
     void Function()? onRemoved,
+    String title = '确定删除选中视频？',
   }) {
     showConfirmDialog(
       context: Get.context!,
-      title: const Text('确定删除选中视频？'),
+      title: Text(title),
       onConfirm: () async {
         SmartDialog.showLoading();
         final watchProgress = GStorage.watchProgress;

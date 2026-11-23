@@ -13,6 +13,7 @@ import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:get/get_core/src/get_main.dart';
 import 'package:get/get_navigation/src/extension_navigation.dart';
+import 'package:PiliPlus/pages/download/download_grid.dart';
 import 'package:material_ui/material_ui.dart';
 
 class SeasonInfoItem extends StatelessWidget {
@@ -137,8 +138,7 @@ class SeasonInfoItem extends StatelessWidget {
             horizontal: Style.safeSpace,
             vertical: 5,
           ),
-          child: Row(
-            spacing: 10,
+          child: DownloadCardLayout(
             children: [
               Stack(
                 clipBehavior: .none,
@@ -188,12 +188,16 @@ class SeasonInfoItem extends StatelessWidget {
                       crossAxisAlignment: .end,
                       mainAxisAlignment: .spaceBetween,
                       children: [
-                        Text(
-                          seasonInfo.uname,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.6,
-                            color: colorScheme.outline,
+                        Expanded(
+                          child: Text(
+                            seasonInfo.uname,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.6,
+                              color: colorScheme.outline,
+                            ),
                           ),
                         ),
                         // pageInfo.entries.first.moreBtn(colorScheme),

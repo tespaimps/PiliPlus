@@ -84,6 +84,10 @@ class _SettingPageState extends State<SettingPage> {
       icon: Icon(Icons.style_outlined),
     ),
     _SettingsModel(
+      type: .downloadSetting,
+      icon: Icon(Icons.download_outlined),
+    ),
+    _SettingsModel(
       type: .extraSetting,
       subtitle: '震动、搜索、收藏、ai、评论、动态、代理、更新检查等',
       icon: Icon(Icons.extension_outlined),

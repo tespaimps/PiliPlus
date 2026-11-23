@@ -37,6 +37,19 @@ import 'package:get/get.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:material_ui/material_ui.dart' hide RefreshIndicator;
 
+List<SettingsModel> get downloadSettings => [
+  SwitchModel(
+    title: '离线缓存双列展示',
+    leading: const Icon(Icons.grid_view),
+    setKey: SettingBoxKey.downloadTwoColumns,
+    onChanged: (value) {
+      if (Get.isRegistered<DownloadService>()) {
+        Get.find<DownloadService>().downloadTwoColumns.value = value;
+      }
+    },
+  ),
+];
+
 List<SettingsModel> get extraSettings => [
   if (PlatformUtils.isDesktop) ...[
     SwitchModel(

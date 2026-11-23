@@ -5,6 +5,7 @@ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/download/download_folder_index.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/models_new/download/download_owner_group.dart';
+import 'package:PiliPlus/models_new/download/download_sort.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 BiliDownloadEntryInfo entry(
@@ -15,6 +16,7 @@ BiliDownloadEntryInfo entry(
   int? cid,
   int bytes = 1,
   String cover = '',
+  int created = 0,
 }) =>
     BiliDownloadEntryInfo(
         isCompleted: true,
@@ -27,6 +29,7 @@ BiliDownloadEntryInfo entry(
         totalTimeMilli: 1000,
         danmakuCount: 0,
         timeUpdateStamp: 1000000 - aid,
+        timeCreateStamp: created,
         avid: aid,
         bvid: 'BV$aid',
         ownerId: ownerId,
@@ -50,6 +53,52 @@ DownloadSeasonInfo video(BiliDownloadEntryInfo e) => DownloadSeasonInfo(
 );
 
 void main() {
+  test('sorts folders using date bounds, size, displayed name and type', () {
+    final index = DownloadFolderIndex([
+      entry(1, ownerId: 10, created: 10, bytes: 3),
+      entry(2, ownerId: 10, created: 90, bytes: 4),
+      entry(3, ownerId: 30, created: 50, bytes: 20),
+      entry(4),
+    ], DownloadFolderLayout(names: {'id:10': 'A folder'}));
+    final items = index.snapshot().rootItems;
+    List<String> order(DownloadSortField field, bool ascending) =>
+        sortDownloads(items, (
+          field: field,
+          ascending: ascending,
+        )).map(downloadSelectionKey).toList();
+    expect(order(DownloadSortField.created, true), [
+      'owner:id:10',
+      'page:3',
+      'page:4',
+    ]);
+    expect(order(DownloadSortField.created, false), [
+      'owner:id:10',
+      'page:3',
+      'page:4',
+    ]);
+    expect(order(DownloadSortField.size, false).first, 'page:3');
+    expect(order(DownloadSortField.name, true).first, 'owner:id:10');
+    expect(order(DownloadSortField.type, false).first, 'owner:id:10');
+    expect(order(DownloadSortField.type, true).last, 'owner:id:10');
+    expect(decodeDownloadSort(['size', true]), (
+      field: DownloadSortField.size,
+      ascending: true,
+    ));
+    expect(decodeDownloadSort(['missing', true]), defaultDownloadSort);
+  });
+
+  test('indexes matching parts under one searchable manuscript', () {
+    final index = DownloadFolderIndex([
+      entry(1, ownerId: 10, ownerName: 'UP主'),
+      entry(1, ownerId: 10, cid: 101),
+    ], DownloadFolderLayout());
+    final video = index.searchVideos.values.single;
+    expect(video.card.pages.single.entries, hasLength(2));
+    expect(video.matches('第一'), isTrue);
+    expect(video.matchingPart('第一'), '第一节');
+    expect(video.matches('up主'), isTrue);
+  });
+
   final fixtureRoot = Platform.environment['PILI_CACHE_PROFILE_FIXTURES'];
   for (final size in [1000, 10000]) {
     test('renames and moves only affected groups in a $size video library', () {
@@ -81,6 +130,13 @@ void main() {
       expect(index.folder('id:2')!.group.videoCount, 3);
       expect(index.folder('id:2')!.group.name, 'Target Folder');
       expect(index.snapshot().rootItems.length, size ~/ 2);
+      final cards = index.searchVideos;
+      expect(cards.length, size);
+      final hits = cards.values
+          .where((video) => video.matches('教程'))
+          .map((v) => v.card);
+      expect(sortDownloads(hits, defaultDownloadSort).length, size);
+      expect(index.searchVideos, same(cards));
       expect(visits, size);
     });
 

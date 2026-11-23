@@ -5,12 +5,16 @@ import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/download/download_folder_index.dart';
 import 'package:PiliPlus/models_new/download/download_info.dart';
 import 'package:PiliPlus/models_new/download/download_owner_group.dart';
+import 'package:PiliPlus/models_new/download/download_sort.dart';
 import 'package:PiliPlus/pages/download/download/widgets/owner.dart';
 import 'package:PiliPlus/pages/download/download/controller.dart';
 import 'package:PiliPlus/pages/download/download/view.dart';
+import 'package:PiliPlus/pages/download/download_grid.dart';
 import 'package:PiliPlus/pages/download/owner/view.dart';
+import 'package:PiliPlus/pages/download/search/controller.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
@@ -20,8 +24,16 @@ import 'package:material_ui/material_ui.dart';
 import 'download_owner_test.dart' as fixture;
 
 class _SettingsBox extends Fake implements Box<dynamic> {
+  final _settings = <dynamic, dynamic>{};
+
   @override
-  dynamic get(dynamic key, {dynamic defaultValue}) => defaultValue;
+  dynamic get(dynamic key, {dynamic defaultValue}) =>
+      _settings[key] ?? defaultValue;
+
+  @override
+  Future<void> put(dynamic key, dynamic value) async {
+    _settings[key] = value;
+  }
 }
 
 class _Images extends CachingAssetBundle {
@@ -117,6 +129,205 @@ void main() {
     GStorage.video = _SettingsBox();
     GStorage.watchProgress = _ProgressBox();
   });
+
+  testWidgets('persists root sort and keeps folder sorting temporary', (
+    tester,
+  ) async {
+    tester.view
+      ..devicePixelRatio = 1
+      ..physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final downloads = _Downloads()
+      ..downloadList.addAll([
+        fixture.entry(1, ownerId: 10, ownerName: '排序作者', created: 30, bytes: 1),
+        fixture.entry(2, ownerId: 10, ownerName: '排序作者', created: 20, bytes: 2),
+      ]);
+    Get.put<DownloadService>(downloads);
+    addTearDown(Get.reset);
+    addTearDown(() => GStorage.setting.put(SettingBoxKey.downloadSort, null));
+    await tester.pumpWidget(
+      GetMaterialApp(
+        theme: ThemeData(splashFactory: InkRipple.splashFactory),
+        builder: (context, child) =>
+            DefaultAssetBundle(bundle: _Images(), child: child!),
+        home: const DownloadPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('大小'));
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(DownloadController().sort.value, (
+      field: DownloadSortField.size,
+      ascending: false,
+    ));
+    await tester.tap(find.text('排序作者'));
+    await tester.pumpAndSettle();
+    double y(int i) => tester.getTopLeft(find.text('Flutter教程 $i')).dy;
+    expect(y(2), lessThan(y(1)));
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('升序'));
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(y(1), lessThan(y(2)));
+    Get.back();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('排序作者'));
+    await tester.pumpAndSettle();
+    expect(y(2), lessThan(y(1)));
+  });
+
+  testWidgets(
+    'switches the shared grid to two columns and reveals the playing row',
+    (tester) async {
+      final downloads = _Downloads();
+      Get.put<DownloadService>(downloads);
+      addTearDown(Get.reset);
+      var revealed = 0.0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                DownloadGrid(
+                  itemCount: 10,
+                  revealIndex: 3,
+                  singleHorizontal: true,
+                  onReveal: (offset, _) => revealed = offset,
+                  itemBuilder: (_, i) => Text('item $i'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final singleOffset = revealed;
+      expect(singleOffset, 336);
+      expect(
+        tester.getTopLeft(find.text('item 0')).dx,
+        tester.getTopLeft(find.text('item 1')).dx,
+      );
+      downloads.downloadTwoColumns.value = true;
+      await tester.pumpAndSettle();
+      final first = tester.getTopLeft(find.text('item 0'));
+      final second = tester.getTopLeft(find.text('item 1'));
+      final third = tester.getTopLeft(find.text('item 2'));
+      expect(first.dy, second.dy);
+      expect(first.dx, lessThan(second.dx));
+      expect(revealed, third.dy - first.dy);
+    },
+  );
+
+  testWidgets(
+    'search groups folders first and restores a deep position after two moves',
+    (tester) async {
+      tester.view
+        ..devicePixelRatio = 1
+        ..physicalSize = const Size(390, 844);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await GStorage.setting.put(SettingBoxKey.downloadSort, ['size', false]);
+      addTearDown(() => GStorage.setting.put(SettingBoxKey.downloadSort, null));
+      final downloads = _Downloads()
+        ..downloadList.addAll([
+          fixture.entry(1, ownerId: 10, ownerName: 'Flutter 文件夹'),
+          fixture.entry(2, ownerId: 10, ownerName: 'Flutter 文件夹'),
+          for (var i = 0; i < 34; i++)
+            fixture.entry(1000 + i, ownerId: 1000 + i, bytes: 10000000000 - i),
+        ]);
+      Get.put<DownloadService>(downloads);
+      addTearDown(Get.reset);
+      await tester.pumpWidget(
+        GetMaterialApp(
+          theme: ThemeData(splashFactory: InkRipple.splashFactory),
+          builder: (context, child) =>
+              DefaultAssetBundle(bundle: _Images(), child: child!),
+          home: const DownloadPage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('搜索'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Flutter');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      final search = Get.find<DownloadSearchController>();
+      expect(search.list.first, isA<DownloadOwnerFolder>());
+      expect(downloadSelectionKey(search.list[1]), 'page:1000');
+      final scroll = search.scrollController..jumpTo(1300);
+      await tester.pumpAndSettle();
+      for (final id in [1011, 1012]) {
+        await tester.tap(find.byTooltip('多选'));
+        await tester.pumpAndSettle();
+        final offset = scroll.offset;
+        await tester.tap(find.text('Flutter教程 $id'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('移动'));
+        await tester.pumpAndSettle();
+        expect(find.byType(DownloadOwnerItem), findsOneWidget);
+        await tester.tap(find.byType(DownloadOwnerItem));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('是'));
+        await tester.pumpAndSettle();
+        expect(downloads.folderIndex.locations('video:$id'), {'id:10'});
+        expect(search.editController.text, 'Flutter');
+        expect(scroll.offset, closeTo(offset, 5));
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'search merges a folder and overlapping manuscript results once',
+    (tester) async {
+      final downloads = _Downloads()
+        ..downloadList.addAll([
+          fixture.entry(1, ownerId: 10, ownerName: 'Flutter 文件夹'),
+          fixture.entry(1, ownerId: 10, cid: 101),
+          fixture.entry(2, ownerId: 10, ownerName: 'Flutter 文件夹'),
+          fixture.entry(3, ownerId: 20),
+        ]);
+      Get.put<DownloadService>(downloads);
+      addTearDown(Get.reset);
+      downloads.downloadTwoColumns.value = true;
+      await tester.pumpWidget(
+        GetMaterialApp(
+          theme: ThemeData(splashFactory: InkRipple.splashFactory),
+          builder: (context, child) =>
+              DefaultAssetBundle(bundle: _Images(), child: child!),
+          home: const DownloadPage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('搜索'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Flutter');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      final search = Get.find<DownloadSearchController>();
+      expect(search.list, hasLength(4));
+      await tester.tap(find.byTooltip('多选'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('全选'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('合并'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Flutter 汇总');
+      await tester.pump();
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      final folder = search.list.first as DownloadOwnerFolder;
+      expect(folder.group.name, 'Flutter 汇总');
+      expect(folder.group.videoCount, 3);
+      expect(folder.group.entries.length, 4);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final (label, keys, ids) in [
     ('folder and video', ['owner:id:10', 'page:5'], [1, 2, 5]),
@@ -373,7 +584,7 @@ void main() {
       expect(find.textContaining('UID 10'), findsNothing);
       await tester.enterText(find.byType(TextField), '  up 主 ');
       await tester.pumpAndSettle();
-      final target = find.text('UID 20 · 2 个视频');
+      final target = find.textContaining('UID 20');
       expect(target, findsOneWidget);
       await tester.tap(target);
       await tester.pumpAndSettle();
@@ -386,6 +597,7 @@ void main() {
       await tester.tap(find.text('是'));
       await tester.pumpAndSettle();
       expect(find.text('移动到文件夹'), findsNothing);
+      expect(find.byType(DownloadOwnerPage), findsOneWidget);
       expect(downloads.folderIndex.locations('video:1'), {'id:20'});
       expect(tester.takeException(), isNull);
     },

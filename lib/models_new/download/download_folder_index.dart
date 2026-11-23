@@ -56,6 +56,39 @@ class DownloadFolderException implements Exception {
   const DownloadFolderException(this.message);
 }
 
+class DownloadSearchVideo {
+  final DownloadSeasonInfo card;
+  final Set<String> _terms = {};
+  final Map<String, String> _parts = {};
+
+  DownloadSearchVideo(this.card) {
+    for (final page in card.pages) {
+      for (final entry in page.entries) {
+        for (final text in [
+          entry.title,
+          entry.ownerName,
+          entry.seasonInfo?.uname,
+        ]) {
+          if (text != null) _terms.add(text.toLowerCase());
+        }
+        final part = entry.showTitle;
+        if (part != entry.title) _parts[part] = part.toLowerCase();
+      }
+    }
+  }
+
+  bool matches(String query) =>
+      _terms.any((term) => term.contains(query)) ||
+      _parts.values.any((part) => part.contains(query));
+
+  String? matchingPart(String query) {
+    for (final part in _parts.entries) {
+      if (part.value.contains(query)) return part.key;
+    }
+    return null;
+  }
+}
+
 typedef _Member = ({
   int rank,
   DownloadSeasonInfo season,
@@ -82,10 +115,29 @@ class DownloadFolderIndex {
   final _pagesByPath = <String, DownloadPageInfo>{};
   final _collections = <(String?, int), DownloadSeasonInfo>{};
   final _originalGroups = <String, String>{};
+  late final searchVideos = Map<String, DownloadSearchVideo>.unmodifiable({
+    for (final entry in _videos.entries)
+      entry.key: DownloadSearchVideo(_searchCard(entry.value)),
+  });
+
+  DownloadSeasonInfo _searchCard(List<_Member> members) {
+    final page = members.first.page;
+    return DownloadSeasonInfo(
+      seasonInfo: null,
+      pageId: page.pageId,
+      pages: List.unmodifiable(
+        {
+          for (final member in members)
+            member.page.dirPath: _pagesByPath[member.page.dirPath]!,
+        }.values,
+      ),
+    );
+  }
 
   DownloadFolderIndex(Iterable<BiliDownloadEntryInfo> entries, this._layout)
     : seasons = buildDownloadSeasons(entries) {
     var rank = 0;
+    final splitPages = <String, List<DownloadPageInfo>>{};
     for (final season in seasons) {
       final (:key, :name) = downloadOwnerIdentity(season);
       if (season.seasonInfo case final info?) {
@@ -101,13 +153,34 @@ class DownloadFolderIndex {
           autoName: name,
         );
         (_videos[video] ??= []).add(member);
-        _pagesByPath[page.dirPath] = page;
+        final firstPage = _pagesByPath.putIfAbsent(page.dirPath, () => page);
+        if (!identical(firstPage, page)) {
+          (splitPages[page.dirPath] ??= [firstPage]).add(page);
+        }
         _originalGroups.putIfAbsent(key, () => name);
         final target = _layout.destinations[video];
         final bucket = _buckets.putIfAbsent(target ?? key, _Bucket.new);
         bucket.members[member.rank] = member;
         if (target != null) bucket.explicitCount++;
       }
+    }
+    for (final pages in splitPages.values) {
+      final first = pages.first;
+      final entries = <int, BiliDownloadEntryInfo>{};
+      for (final page in pages) {
+        for (final entry in page.entries) {
+          entries.putIfAbsent(entry.cid, () => entry);
+        }
+      }
+      _pagesByPath[first.dirPath] = DownloadPageInfo(
+        pageId: first.pageId,
+        dirPath: first.dirPath,
+        title: first.title,
+        cover: first.cover,
+        sortKey: first.sortKey,
+        seasonType: first.seasonType,
+        entries: List.unmodifiable(entries.values),
+      );
     }
     for (final key in _buckets.keys) {
       _refresh(key, ordered: true);

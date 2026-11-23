@@ -23,6 +23,7 @@ import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
+import 'package:PiliPlus/pages/download/download_grid.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as path;
 
@@ -39,6 +40,7 @@ class DetailItem extends StatelessWidget {
     required this.controller,
     this.checked,
     this.onSelect,
+    this.contextLabel,
   });
 
   final BiliDownloadEntryInfo entry;
@@ -51,6 +53,7 @@ class DetailItem extends StatelessWidget {
   final MultiSelectBase controller;
   final bool? checked;
   final ValueChanged<BiliDownloadEntryInfo>? onSelect;
+  final String? contextLabel;
 
   void showSegmentsDetail(BuildContext context) => showDialog(
     context: context,
@@ -221,8 +224,7 @@ class DetailItem extends StatelessWidget {
             horizontal: Style.safeSpace,
             vertical: 5,
           ),
-          child: Row(
-            spacing: 10,
+          child: DownloadCardLayout(
             children: [
               Stack(
                 clipBehavior: Clip.none,
@@ -360,7 +362,14 @@ class DetailItem extends StatelessWidget {
                               : 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        if (showTitle) ...[
+                        if (contextLabel case final label?)
+                          Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: outline),
+                          ),
+                        if (showTitle && contextLabel == null) ...[
                           if (entry.pageData?.part case final part?)
                             if (part != entry.title)
                               Text(
@@ -388,9 +397,12 @@ class DetailItem extends StatelessWidget {
                     if (entry.isCompleted) ...[
                       Positioned(
                         left: 0,
+                        right: 32,
                         bottom: 0,
                         child: Text(
                           '${entry.totalBytes.formatSize}${entry.ownerName != null ? '  ${entry.ownerName}' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 12,
                             height: 1.6,

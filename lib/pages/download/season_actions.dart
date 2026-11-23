@@ -82,7 +82,12 @@ mixin DownloadSeasonActions<T extends StatefulWidget>
     );
   }
 
-  Widget buildSeasonItem(DownloadSeasonInfo season, ChangeNotifier progress) {
+  Widget buildSeasonItem(
+    DownloadSeasonInfo season,
+    ChangeNotifier progress, {
+    String? contextLabel,
+    bool searchResult = false,
+  }) {
     final pages = season.pages;
     final seasonInfo = season.seasonInfo;
     if (seasonInfo != null && pages.length > 1) {
@@ -115,6 +120,7 @@ mixin DownloadSeasonActions<T extends StatefulWidget>
         checked: season.checked,
         onSelect: (_) => multiSelectCtr.onSelect(season),
         controller: multiSelectCtr,
+        contextLabel: contextLabel,
       );
     }
     return PageInfoItem(
@@ -129,6 +135,8 @@ mixin DownloadSeasonActions<T extends StatefulWidget>
       updatePageVolume: updatePageVolume,
       updatePagePlayInfo: updatePagePlayInfo,
       updatePageSeasonInfo: updatePageSeasonInfo,
+      contextLabel: contextLabel,
+      searchVideoKey: searchResult ? downloadVideoKey(page) : null,
     );
   }
 }

@@ -14,6 +14,7 @@ import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:get/get_core/src/get_main.dart';
 import 'package:get/get_navigation/src/extension_navigation.dart';
+import 'package:PiliPlus/pages/download/download_grid.dart';
 import 'package:material_ui/material_ui.dart';
 
 class PageInfoItem<T extends MultiSelectData> extends StatelessWidget {
@@ -30,6 +31,8 @@ class PageInfoItem<T extends MultiSelectData> extends StatelessWidget {
     required this.updatePageVolume,
     required this.updatePagePlayInfo,
     required this.updatePageSeasonInfo,
+    this.contextLabel,
+    this.searchVideoKey,
   });
 
   final BaseMultiSelectMixin<T> controller;
@@ -43,6 +46,8 @@ class PageInfoItem<T extends MultiSelectData> extends StatelessWidget {
   final ValueChanged<DownloadPageInfo> updatePageVolume;
   final ValueChanged<DownloadPageInfo> updatePagePlayInfo;
   final ValueChanged<DownloadPageInfo> updatePageSeasonInfo;
+  final String? contextLabel;
+  final String? searchVideoKey;
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +129,7 @@ class PageInfoItem<T extends MultiSelectData> extends StatelessWidget {
           Get.to(
             DownloadDetailPage(
               pageDirPath: pageInfo.dirPath,
+              searchVideoKey: searchVideoKey,
               title: pageInfo.title,
               progress: progress,
             ),
@@ -136,8 +142,7 @@ class PageInfoItem<T extends MultiSelectData> extends StatelessWidget {
             horizontal: Style.safeSpace,
             vertical: 5,
           ),
-          child: Row(
-            spacing: 10,
+          child: DownloadCardLayout(
             children: [
               Stack(
                 clipBehavior: .none,
@@ -187,16 +192,30 @@ class PageInfoItem<T extends MultiSelectData> extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    if (contextLabel case final label?)
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colorScheme.outline,
+                        ),
+                      ),
                     Row(
                       crossAxisAlignment: .end,
                       mainAxisAlignment: .spaceBetween,
                       children: [
-                        Text(
-                          '${pageInfo.entries.fold(0, (p, n) => p + n.totalBytes).formatSize}  ${pageInfo.entries.first.ownerName ?? ""}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.6,
-                            color: colorScheme.outline,
+                        Expanded(
+                          child: Text(
+                            '${pageInfo.totalBytes.formatSize}  ${pageInfo.entries.first.ownerName ?? ""}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.6,
+                              color: colorScheme.outline,
+                            ),
                           ),
                         ),
                         pageInfo.entries.first.moreBtn(colorScheme),

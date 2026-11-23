@@ -17,6 +17,7 @@ abstract class CommonSearchPageState<S extends StatefulWidget, R, T>
   List<Widget>? get extraActions => null;
 
   List<Widget>? get multiSelectActions => null;
+  bool get multiSelectActionsBelow => false;
 
   String get searchHint => '搜索';
 
@@ -93,6 +94,7 @@ abstract class CommonSearchPageState<S extends StatefulWidget, R, T>
       return MultiSelectAppBarWidget(
         ctr: controller as MultiSelectBase,
         actions: multiSelectActions,
+        actionsBelow: multiSelectActionsBelow,
         child: bar,
       );
     }

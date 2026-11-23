@@ -9,8 +9,6 @@ import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/scroll_offset_helper.dart';
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
     show ExtendedNestedScrollController;
-import 'package:flutter/foundation.dart' show kDebugMode;
-import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'package:get/get.dart';
 
 class LocalIntroController extends CommonIntroController {
@@ -58,11 +56,11 @@ class LocalIntroController extends CommonIntroController {
     videoDetail.value.title = videoDetailCtr.args['title'];
     final controller = Get.find<DownloadController>();
     final list = <BiliDownloadEntryInfo>[];
-    for (final seaon in controller.seasons) {
-      for (final page in seaon.pages) {
-        final items = page.entries..sort(downloadEntrySort);
-        final completed = items.where((e) => e.isCompleted);
-        list.addAllIf(completed.isNotEmpty, completed);
+    for (final season in controller.seasons) {
+      for (final page in season.pages) {
+        final completed = page.entries.where((e) => e.isCompleted).toList()
+          ..sort(downloadEntrySort);
+        list.addAll(completed);
         if (completed.length == 1) {
           aidSet.add(page.pageId);
         }
@@ -72,42 +70,36 @@ class LocalIntroController extends CommonIntroController {
     final currCid = videoDetailCtr.cid.value;
     final index = list.indexWhere((e) => e.cid == currCid);
     this.index.value = index;
-    if (PlatformUtils.isMobile) {
+    if (index >= 0 && PlatformUtils.isMobile) {
       onVideoDetailChange(list[index]);
     }
-    if (index != 0) {
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        final (double offset, double remain) = calcFixedItemOffset(
-          index: index,
-          itemCount: list.length,
-          // bottomPadding: ignore view padding
-        );
-        try {
-          final state = videoDetailCtr.scrollKey.currentState;
-          if (state != null && state.mounted) {
-            final position =
-                (state.innerController as ExtendedNestedScrollController)
-                    .nestedPositions
-                    .first;
-            final adjustOffset = adjustScrollOffset(
-              offset: offset,
-              remain: remain,
-              viewportDimension: position.viewportDimension,
-            );
-            position.localJumpTo(adjustOffset);
-          } else if (videoDetailCtr.introScrollCtr?.hasClients ?? false) {
-            final position = videoDetailCtr.introScrollCtr!.position;
-            final adjustOffset = adjustScrollOffset(
-              offset: offset,
-              remain: remain,
-              viewportDimension: position.viewportDimension,
-            );
-            position.jumpTo(adjustOffset);
-          }
-        } catch (_) {
-          if (kDebugMode) rethrow;
-        }
-      });
+  }
+
+  void revealPlaying(double offset, double remaining) {
+    if (isClosed) return;
+    final state = videoDetailCtr.scrollKey.currentState;
+    if (state != null && state.mounted) {
+      final positions =
+          (state.innerController as ExtendedNestedScrollController)
+              .nestedPositions;
+      if (positions.isEmpty) return;
+      final position = positions.first;
+      position.localJumpTo(
+        adjustScrollOffset(
+          offset: offset,
+          remain: remaining,
+          viewportDimension: position.viewportDimension,
+        ),
+      );
+    } else if (videoDetailCtr.introScrollCtr?.hasClients ?? false) {
+      final position = videoDetailCtr.introScrollCtr!.position;
+      position.jumpTo(
+        adjustScrollOffset(
+          offset: offset,
+          remain: remaining,
+          viewportDimension: position.viewportDimension,
+        ),
+      );
     }
   }
 

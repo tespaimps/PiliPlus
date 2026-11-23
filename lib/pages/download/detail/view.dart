@@ -13,7 +13,7 @@ import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
 import 'package:PiliPlus/pages/download/download/controller.dart';
 import 'package:PiliPlus/pages/download/download_action_mixin.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
-import 'package:PiliPlus/utils/grid.dart';
+import 'package:PiliPlus/pages/download/download_grid.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -26,11 +26,13 @@ class DownloadDetailPage extends StatefulWidget {
     required this.pageDirPath,
     required this.title,
     required this.progress,
+    this.searchVideoKey,
   });
 
   final String pageDirPath;
   final String title;
   final ChangeNotifier progress;
+  final String? searchVideoKey;
 
   @override
   State<DownloadDetailPage> createState() => _DownloadDetailPageState();
@@ -39,7 +41,6 @@ class DownloadDetailPage extends StatefulWidget {
 class _DownloadDetailPageState extends State<DownloadDetailPage>
     with
         BaseMultiSelectMixin<BiliDownloadEntryInfo>,
-        GridMixin,
         BaseDownloadActionMixin<DownloadDetailPage, BiliDownloadEntryInfo>,
         CommonDownloadActionMixin<DownloadDetailPage> {
   StreamSubscription? _sub;
@@ -80,9 +81,12 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
   }
 
   void _loadList() {
-    final list =
-        downloadService.folderIndex.pageAt(widget.pageDirPath)?.entries.toList()
-          ?..sort(downloadEntrySort);
+    final index = downloadService.folderIndex;
+    final video = widget.searchVideoKey;
+    final entries = video == null
+        ? index.pageAt(widget.pageDirPath)?.entries
+        : index.searchVideos[video]?.card.pages.expand((page) => page.entries);
+    final list = entries?.toList()?..sort(downloadEntrySort);
     if (list != null) {
       _downloadItems.value = list;
     } else {
@@ -128,8 +132,7 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
               ViewSliverSafeArea(
                 sliver: Obx(() {
                   if (_downloadItems.isNotEmpty) {
-                    return SliverGrid.builder(
-                      gridDelegate: gridDelegate,
+                    return DownloadGrid(
                       itemBuilder: (context, index) {
                         final entry = _downloadItems[index];
                         return DetailItem(
